@@ -1,0 +1,91 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+env/
+.venv
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Project Specific
+.data/
+models/
+models/*
+!models/.gitkeep
+experiments.json
+.log
+*.log
+auto_ml_run.log
+pipeline_trace.log
+
+# Data
+data/raw/
+data/processed/
+*.csv
+*.parquet
+*.feather
+*.pickle
+*.pkl
+*.joblib
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Playwright
+playwright-report/
+test-results/
+test-results/
+
+# UV (Python package manager)
+.uv/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
