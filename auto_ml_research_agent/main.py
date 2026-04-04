@@ -328,7 +328,7 @@ def main(problem: str, dataset_path: Optional[str] = None) -> Dict[str, Any]:
                 selected_candidate = candidate
                 source = candidate.get('source', 'unknown')
                 url = candidate.get('url', '')
-                url_msg = f" → {url}" if url else ""
+                url_msg = f" -> {url}" if url else ""
                 print(f"  [OK] Selected dataset: {candidate['name']} (source: {source}{url_msg})")
                 print(f"       Baseline score: {validation.get('baseline_score', 'N/A'):.4f}")
                 break
@@ -382,7 +382,7 @@ def main(problem: str, dataset_path: Optional[str] = None) -> Dict[str, Any]:
                 col = transformer['column']
                 card = transformer['cardinality']
                 enc = transformer.get('encoding_method', 'N/A')
-                steps_str = " → ".join([s[0] for s in transformer['steps'] if s])
+                steps_str = " -> ".join([s[0] for s in transformer['steps'] if s])
                 print(f"  [CAT]      {col:20s} cardinality={card:4d} encoding={enc:10s} [{steps_str}]")
 
         print("="*60)
