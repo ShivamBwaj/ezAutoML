@@ -59,7 +59,9 @@ data/processed/
 *.joblib
 settings.json
 #hide this C:\Users\Loq\Documents\CRAP\EZautoML\.claude
-.claude/
+#.claude/
+
+
 # Environment Variables
 .env
 .env.local
@@ -91,3 +93,4 @@ test-results/
 tmp/
 temp/
 *.tmp
+.claude/
