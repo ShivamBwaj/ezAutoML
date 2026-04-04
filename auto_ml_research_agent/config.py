@@ -14,7 +14,7 @@ load_dotenv()
 class Config(BaseModel):
     """Main configuration container"""
     groq_api_key: str = Field(..., description="Groq API key")
-    groq_model: str = Field("llama-3.3-70b-versatile", description="Groq model to use")
+    groq_model: str = Field("llama-3.1-8b-instant", description="Groq model to use")
     temperature: float = Field(0.3, ge=0.0, le=1.0, description="LLM temperature")
     max_retries: int = Field(3, ge=0, description="Max retries for LLM calls")
     patience: int = Field(50, ge=1, description="Patience for iteration stopping (research: use 50+)")
@@ -45,7 +45,7 @@ class Config(BaseModel):
 
         return cls(
             groq_api_key=groq_api_key,
-            groq_model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+            groq_model=os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
             temperature=float(os.getenv("TEMPERATURE", "0.3")),
             max_retries=int(os.getenv("MAX_RETRIES", "3")),
             test_size=float(os.getenv("TEST_SIZE", "0.2")),

@@ -82,14 +82,15 @@ Available model types you can suggest:
 - GLM: PoissonRegressor, GammaRegressor, TweedieRegressor
 - External: XGBoost, LightGBM, CatBoost
 
-Suggest 3-5 CONCRETE improvements:
-- Specific model types (e.g., "try MLPClassifier with hidden_layer_sizes=(100,50)", "use XGBoost with n_estimators=200")
-- Feature engineering (e.g., "add polynomial features degree 2", "log transform skewed features")
-- Preprocessing changes (e.g., "use robust scaling", "apply PCA for dimensionality")
-- Parameter tuning (e.g., "increase n_estimators", "decrease learning_rate", "adjust C for SVMs")
-- Algorithm switches (e.g., "switch to gradient boosting", "try histogram gradient boosting for speed")
+Suggest 3-5 CONCRETE improvements as simple text strings (not objects). Each suggestion should be one sentence with specific details:
+- "Try RandomForest with n_estimators=200"
+- "Add polynomial features degree 2 to numeric columns"
+- "Use StandardScaler instead of RobustScaler"
+- "Increase C parameter to 10.0 for SVC"
+- "Switch to XGBoost with learning_rate=0.05"
 
 Be specific and actionable. Include parameter values. Avoid vague suggestions like "try better models".
+DO NOT use structured objects - just plain text strings.
 
 Respond with JSON:
 {{

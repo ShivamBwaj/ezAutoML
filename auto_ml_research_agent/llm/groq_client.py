@@ -19,7 +19,7 @@ class GroqClient:
     def __init__(
         self,
         api_key: str,
-        model: str = "llama-3.3-70b-versatile",
+        model: str = "llama-3.1-8b-instant",
         temperature: float = 0.3,
         max_retries: int = 3
     ):
@@ -28,7 +28,7 @@ class GroqClient:
 
         Args:
             api_key: Groq API key
-            model: Model identifier (default: llama-3.3-70b-versatile)
+            model: Model identifier (default: llama-3.1-8b-instant)
             temperature: Sampling temperature (0.0-1.0)
             max_retries: Number of retry attempts on failure
         """

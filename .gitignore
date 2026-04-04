@@ -47,6 +47,7 @@ experiments.json
 *.log
 auto_ml_run.log
 pipeline_trace.log
+settings.json
 
 # Data
 data/raw/

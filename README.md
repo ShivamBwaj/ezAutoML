@@ -1,4 +1,4 @@
-# AUTO_ML_RESEARCH_AGENT
+# ezAutoML
 
 Automated machine learning research agent that uses LLM-guided reasoning to iteratively improve models.
 
@@ -216,7 +216,7 @@ Settings in `.env` or environment variables:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `GROQ_API_KEY` | (required) | Groq API key |
-| `GROQ_MODEL` | `llama-3.3-70b-versatile` | LLM model |
+| `GROQ_MODEL` | `llama-3.1-8b-instant` | LLM model |
 | `TEMPERATURE` | `0.3` | LLM sampling temperature |
 | `MAX_RETRIES` | `3` | LLM API retry attempts |
 | `PATIENCE` | `5` | Iterations without improvement before stop |
@@ -305,4 +305,4 @@ MIT
 
 ## Author
 
-Built with Claude Code as part of the AUTO_ML_RESEARCH_AGENT project.
+Shivam

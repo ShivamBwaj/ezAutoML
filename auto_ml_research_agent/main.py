@@ -296,12 +296,12 @@ def main(problem: str, dataset_path: Optional[str] = None) -> Dict[str, Any]:
                     trial_df = None
 
             if trial_df is None:
-                print(f"    [WARN]  Candidate {candidate['name']} unavailable, trying next...")
+                print(f"    [WARN]  Rejecting {candidate['name']}: failed to load dataset")
                 continue
 
             # Quick validation: check if dataset has minimum rows
             if trial_df.shape[0] < 100:
-                print(f"    [WARN]  Dataset too small ({trial_df.shape[0]} rows), trying next...")
+                print(f"    [WARN]  Rejecting {candidate['name']}: dataset too small ({trial_df.shape[0]} rows < 100 minimum)")
                 continue
 
             # Process candidate: profile, interpret, full validation
@@ -317,7 +317,7 @@ def main(problem: str, dataset_path: Optional[str] = None) -> Dict[str, Any]:
                 trial_validation = evaluator.evaluate(trial_df)
 
                 if not trial_validation['suitable']:
-                    print(f"    [WARN]  Unsuitable: {trial_validation['reason']}")
+                    print(f"    [WARN]  Rejecting {candidate['name']}: {trial_validation['reason']}")
                     continue
 
                 # Success!
@@ -333,7 +333,7 @@ def main(problem: str, dataset_path: Optional[str] = None) -> Dict[str, Any]:
                 print(f"       Baseline score: {validation.get('baseline_score', 'N/A'):.4f}")
                 break
             except Exception as e:
-                print(f"    [WARN]  Processing error: {str(e)[:100]}")
+                print(f"    [WARN]  Rejecting {candidate['name']}: processing error: {str(e)[:100]}")
                 continue
 
         if df is None:
@@ -382,7 +382,7 @@ def main(problem: str, dataset_path: Optional[str] = None) -> Dict[str, Any]:
                 col = transformer['column']
                 card = transformer['cardinality']
                 enc = transformer.get('encoding_method', 'N/A')
-                steps_str = " -> ".join([s[0] for s in transformer['steps'] if s])
+                steps_str = " -> ".join([s['name'] for s in transformer['steps'] if s])
                 print(f"  [CAT]      {col:20s} cardinality={card:4d} encoding={enc:10s} [{steps_str}]")
 
         print("="*60)

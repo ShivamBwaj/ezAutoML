@@ -164,35 +164,38 @@ class PreprocessingEngine:
             # Step 1: If boolean, convert to object dtype (SimpleImputer doesn't support bool)
             # Use pandas API to safely check for bool dtype (handles numpy bool and pandas BooleanDtype)
             if pd.api.types.is_bool_dtype(col_dtype):
-                steps.append(('bool_to_obj', 'BoolToObjectConverter'))
+                steps.append(('bool_to_obj', BoolToObjectConverter()))
 
             # Step 2: Imputation (most_frequent)
-            steps.append(('imputer', 'SimpleImputer(strategy=most_frequent)'))
+            steps.append(('imputer', SimpleImputer(strategy='most_frequent')))
 
             # Step 3: Encoding based on cardinality
             encoding_method = None
             if cardinality <= self.categorical_encoding_threshold:
                 # One-hot encoding for low cardinality
-                steps.append(('onehot', 'OneHotEncoder(handle_unknown=ignore, sparse=False)'))
+                steps.append(('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False)))
                 encoding_method = 'onehot'
                 transformers.append((f'cat_{col}', Pipeline(steps), [col]))
             else:
                 # Frequency encoding for high cardinality
                 if self.high_cardinality_encoding == "frequency":
-                    steps.append(('freq', 'FrequencyEncoder'))
+                    steps.append(('freq', FrequencyEncoder()))
                     encoding_method = 'frequency'
                     transformers.append((f'cat_{col}', Pipeline(steps), [col]))
                 else:
                     # Drop high-cardinality categoricals
                     continue
 
-            # Log categorical transformer
+            # Log categorical transformer (store string representations for JSON serialization)
             metadata['transformers'].append({
                 'name': f'categorical_{col}',
                 'column': col,
                 'dtype': str(col_dtype),
                 'cardinality': int(cardinality),
-                'steps': steps,
+                'steps': [
+                    {'name': step[0], 'type': step[1].__class__.__name__ if hasattr(step[1], '__class__') else str(step[1])}
+                    for step in steps
+                ],
                 'encoding_method': encoding_method
             })
 
