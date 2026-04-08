@@ -97,7 +97,7 @@ Limit to top 3-5 most important items in each category.
         lines.append(f"Dataset: {profiler_stats.get('n_rows', 0)} rows, {profiler_stats.get('n_cols', 0)} columns")
         lines.append("\nColumn statistics:")
 
-        for col, stats in profiler_stats.get('columns', {}).items():
+        for col, stats in list(profiler_stats.get('columns', {}).items())[:40]:
             dtype = stats.get('dtype', 'unknown')
             missing = stats.get('missing_pct', 0)
             unique = stats.get('unique_count', 0)
@@ -107,4 +107,6 @@ Limit to top 3-5 most important items in each category.
 
             lines.append(f"- {col}: {dtype}, missing={missing:.1f}%, unique={unique} ({unique_pct:.1f}%), samples=[{sample_str}]")
 
+        if len(profiler_stats.get('columns', {})) > 40:
+            lines.append("... truncated additional columns for token efficiency ...")
         return '\n'.join(lines)

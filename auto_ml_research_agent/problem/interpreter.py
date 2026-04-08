@@ -71,9 +71,10 @@ class ProblemInterpreter:
             # Extract relevant info for LLM
             columns = dataset_info.get("columns", {})
             col_summary = []
-            for col, stats in columns.items():
+            # Keep prompt compact: send top columns only.
+            for col, stats in list(columns.items())[:40]:
                 col_summary.append(f"- {col}: {stats.get('dtype', 'unknown')} (missing: {stats.get('missing_pct', 0):.1f}%)")
-            dataset_context = f"\nDataset has {len(columns)} columns:\n" + "\n".join(col_summary)
+            dataset_context = f"\nDataset has {len(columns)} columns (showing up to 40):\n" + "\n".join(col_summary)
 
         prompt = f"""
 Given this ML problem description:

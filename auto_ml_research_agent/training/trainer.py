@@ -55,6 +55,8 @@ class Trainer:
         """
         X = df.drop(columns=[target_column])
         y = df[target_column]
+        if task == "classification":
+            y = self._normalize_class_labels(y)
         n_rows = len(df)
 
         # Choose validation strategy based on dataset size
@@ -65,6 +67,16 @@ class Trainer:
 
         result['n_samples'] = n_rows
         return result
+
+    def _normalize_class_labels(self, y: pd.Series) -> pd.Series:
+        """
+        Normalize classification labels to avoid spurious classes from whitespace.
+        Example: 'ckd' vs 'ckd\\t' should be treated as same class.
+        """
+        y_norm = y.copy()
+        if y_norm.dtype == "object" or pd.api.types.is_string_dtype(y_norm):
+            y_norm = y_norm.astype(str).str.strip()
+        return y_norm
 
     def _train_with_cv(
         self,

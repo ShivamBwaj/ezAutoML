@@ -23,7 +23,8 @@ class DataProfiler:
         profile = {
             "n_rows": n_rows,
             "n_cols": n_cols,
-            "columns": {}
+            "columns": {},
+            "correlations": self.compute_correlations(df)
         }
 
         for col in df.columns:
@@ -52,6 +53,24 @@ class DataProfiler:
             profile["columns"][col] = col_stats
 
         return profile
+
+    def compute_correlations(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """Compute lightweight numeric correlation diagnostics."""
+        numeric_df = df.select_dtypes(include=["number"])
+        if numeric_df.shape[1] < 2:
+            return {"correlation_matrix": {}, "highly_correlated_pairs": []}
+        corr = numeric_df.corr(method="pearson").fillna(0.0)
+        high_pairs = []
+        cols = list(corr.columns)
+        for i in range(len(cols)):
+            for j in range(i + 1, len(cols)):
+                value = float(corr.iloc[i, j])
+                if abs(value) >= 0.9:
+                    high_pairs.append((cols[i], cols[j], round(value, 4)))
+        return {
+            "correlation_matrix": corr.round(4).to_dict(),
+            "highly_correlated_pairs": high_pairs
+        }
 
     def get_suggested_targets(self, df: pd.DataFrame) -> List[str]:
         """

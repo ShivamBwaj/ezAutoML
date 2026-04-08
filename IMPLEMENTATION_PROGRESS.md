@@ -1,6 +1,68 @@
 # Implementation Progress: AUTO_ML_RESEARCH_AGENT
 
-Last Updated: 2026-04-04
+Last Updated: 2026-04-08
+
+## Current Snapshot (Authoritative)
+
+This section reflects the latest implementation state and should be treated as the source of truth.
+
+### Core Status
+- [x] `main.py` exists as the primary orchestration pipeline.
+- [x] `main3.py` exists as an alternate dataset acquisition strategy (Kaggle API/web search + `kagglehub` first).
+- [x] Groq multi-key failover is implemented (`GROQ_API_KEY`..`GROQ_API_KEY5`).
+- [x] Per-key LLM token pacing logic is implemented in client code (targeting ~12k tokens/min per key with rotation/wait fallback).
+- [x] Default LLM model switched to `llama-3.3-70b-versatile`.
+- [x] Prompt compaction applied in LLM-facing modules to avoid oversized payloads.
+
+### Data and Training Guardrails
+- [x] Data-quality filters in preprocessing:
+  - ID-like column detection/removal
+  - high-missing column removal
+  - constant column removal
+  - low-variance numeric column removal
+- [x] Target validation checks in orchestration.
+- [x] Baseline-score warning path for suspicious datasets.
+- [x] Curated top-model set enforced in generation/suggestion path.
+- [x] Patience default is now 10.
+
+### Reporting and Artifacts
+- [x] Post-training report generation integrated:
+  - `models/reports/training_report.json`
+  - `models/reports/training_report.txt`
+  - `models/reports/score_by_epoch.png`
+  - `models/reports/loss_by_epoch.png`
+  - `models/reports/experiments_by_model.png`
+  - `models/reports/confusion_matrix.png` (classification)
+
+### Known Caveats
+- `main3.py` can still be sensitive to Kaggle UI/network variability; it now rejects clearly leaky datasets and iterates to next candidates.
+- Some historical sections below contain earlier milestone text from prior iterations and may not fully reflect the latest behavior.
+
+## 2026-04-08 Updates (FUTURE_IDEAS + Pipeline Cleanup)
+
+- [x] Groq multi-key failover implemented (`GROQ_API_KEY`..`GROQ_API_KEY5`) with retry-aware key rotation
+- [x] Critical data-quality filters implemented in preprocessing:
+  - ID-like column detection and removal
+  - High-missing column removal
+  - Constant column removal
+  - Low-variance numeric column removal
+- [x] Target validation added to orchestration flow (identifier-like target, high-uniqueness warnings, imbalance warning)
+- [x] Baseline low-score warnings added for suspicious dataset/task combinations
+- [x] Correlation diagnostics added to profiler output
+- [x] Feature-selection system added:
+  - LLM-guided feature selection
+  - Model-based feature selection (mutual information)
+  - Hybrid intersection strategy
+  - Strategy-aware initial variants in iteration 1
+- [x] Model registry reduced to curated top-10 per task; extra/low-value model families removed
+- [x] LLM analyzer and variant parser aligned with curated model set
+- [x] Iteration control now supports optional runtime max-iteration override
+- [x] Console output clarified: trained variants vs cumulative logged experiments
+
+### Verification
+
+- [x] Lint diagnostics: no errors in edited files
+- [x] Syntax check passed with `python -m py_compile` across all edited Python modules
 
 ## Project Structure
 

@@ -68,19 +68,9 @@ Look for:
 4. **Convergence**: Scores plateauing over recent iterations
 5. **Data issues**: Low baseline scores despite good models
 
-Available model types you can suggest:
-- Classical: LogisticRegression, RandomForest, GradientBoosting, ExtraTrees, AdaBoost, DecisionTree
-- Linear: Ridge, Lasso, ElasticNet, LinearRegression
-- Support Vector: SVC (classification), SVR (regression)
-- Neighbors: KNeighbors (KNN)
-- Naive Bayes: GaussianNB
-- Discriminant: LDA, QDA
-- Neural Networks: MLPClassifier, MLPRegressor
-- Gradient Boosting (histogram): HistGradientBoostingClassifier, HistGradientBoostingRegressor
-- Stochastic: SGDClassifier, SGDRegressor, Perceptron, PassiveAggressive
-- Robust: RidgeClassifier, TheilSenRegressor, RANSACRegressor, HuberRegressor
-- GLM: PoissonRegressor, GammaRegressor, TweedieRegressor
-- External: XGBoost, LightGBM, CatBoost
+Available model types you can suggest (curated top set only):
+- Classification: LogisticRegression, RandomForestClassifier, GradientBoostingClassifier, ExtraTreesClassifier, AdaBoostClassifier, SVC, KNeighborsClassifier, DecisionTreeClassifier, XGBClassifier, HistGradientBoostingClassifier
+- Regression: LinearRegression, Ridge, Lasso, RandomForestRegressor, GradientBoostingRegressor, ExtraTreesRegressor, SVR, KNeighborsRegressor, XGBRegressor, HistGradientBoostingRegressor
 
 Suggest 3-5 CONCRETE improvements as simple text strings (not objects). Each suggestion should be one sentence with specific details:
 - "Try RandomForest with n_estimators=200"

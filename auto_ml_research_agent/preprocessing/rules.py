@@ -1,7 +1,7 @@
 """
 Preprocessing Engine: Automatically builds sklearn preprocessing pipelines.
 """
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Optional
 import pandas as pd
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
@@ -70,7 +70,10 @@ class PreprocessingEngine:
         numeric_imputation_strategy: str = "median",
         numeric_scaling: bool = True,
         categorical_encoding_threshold: int = 10,
-        high_cardinality_encoding: str = "frequency"
+        high_cardinality_encoding: str = "frequency",
+        id_cardinality_threshold: float = 0.8,
+        high_missing_threshold: float = 0.7,
+        low_variance_threshold: float = 0.01
     ):
         """
         Initialize preprocessing engine.
@@ -85,6 +88,59 @@ class PreprocessingEngine:
         self.numeric_scaling = numeric_scaling
         self.categorical_encoding_threshold = categorical_encoding_threshold
         self.high_cardinality_encoding = high_cardinality_encoding
+        self.id_cardinality_threshold = id_cardinality_threshold
+        self.high_missing_threshold = high_missing_threshold
+        self.low_variance_threshold = low_variance_threshold
+
+    def detect_id_columns(
+        self,
+        df: pd.DataFrame,
+        cardinality_threshold: Optional[float] = None,
+        name_patterns: Optional[List[str]] = None
+    ) -> List[str]:
+        """Detect likely identifier columns that should be dropped."""
+        if df.empty:
+            return []
+        if name_patterns is None:
+            name_patterns = [
+                "id", "uuid", "guid", "key", "index", "unique",
+                "student", "user", "employee", "member", "patient",
+                "order", "transaction", "invoice", "account",
+                "ssn", "social", "passport", "license"
+            ]
+        threshold = cardinality_threshold if cardinality_threshold is not None else self.id_cardinality_threshold
+        n_rows = len(df)
+        candidates = set()
+        for col in df.columns:
+            unique_count = df[col].nunique(dropna=False)
+            unique_ratio = unique_count / max(1, n_rows)
+            col_lower = str(col).lower()
+            if any(pattern in col_lower for pattern in name_patterns) and unique_ratio > threshold:
+                candidates.add(col)
+                continue
+            if unique_ratio > 0.95 or unique_count == n_rows:
+                # Keep known geographic-like fields that can still carry signal.
+                if "postal" in col_lower or "zip" in col_lower:
+                    continue
+                candidates.add(col)
+        return sorted(candidates)
+
+    def drop_high_missing(self, X: pd.DataFrame, threshold: Optional[float] = None) -> List[str]:
+        """Columns with missingness above threshold."""
+        th = threshold if threshold is not None else self.high_missing_threshold
+        missing_pct = X.isnull().mean()
+        return missing_pct[missing_pct > th].index.tolist()
+
+    def drop_constant(self, X: pd.DataFrame) -> List[str]:
+        """Columns with a single unique value."""
+        nunique = X.nunique(dropna=False)
+        return nunique[nunique <= 1].index.tolist()
+
+    def drop_low_variance(self, X: pd.DataFrame, threshold: Optional[float] = None) -> List[str]:
+        """Numeric columns with very low variance."""
+        th = threshold if threshold is not None else self.low_variance_threshold
+        variances = X.select_dtypes(include=["number"]).var(numeric_only=True)
+        return variances[variances < th].index.tolist()
 
     def build_preprocessor(
         self,
@@ -108,8 +164,28 @@ class PreprocessingEngine:
         metadata = {
             'input_features': {},
             'transformers': [],
-            'summary': {}
+            'summary': {},
+            'dropped_columns': {
+                'id_columns': [],
+                'high_missing': [],
+                'constant': [],
+                'low_variance': []
+            }
         }
+
+        # Drop known-bad feature columns before typing/transformers.
+        id_cols = self.detect_id_columns(X)
+        high_missing_cols = self.drop_high_missing(X)
+        constant_cols = self.drop_constant(X)
+        low_variance_cols = self.drop_low_variance(X)
+        drop_cols = sorted(set(id_cols + high_missing_cols + constant_cols + low_variance_cols))
+        if drop_cols:
+            X = X.drop(columns=drop_cols, errors="ignore")
+
+        metadata['dropped_columns']['id_columns'] = id_cols
+        metadata['dropped_columns']['high_missing'] = high_missing_cols
+        metadata['dropped_columns']['constant'] = constant_cols
+        metadata['dropped_columns']['low_variance'] = low_variance_cols
 
         # Record input feature info
         for col in X.columns:

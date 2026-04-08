@@ -1,4 +1,8 @@
 # Python
+playwright_auth/
+logs/
+docs/
+
 __pycache__/
 *.py[cod]
 *$py.class
@@ -38,9 +42,6 @@ venv.bak/
 
 # Project Specific
 .data/
-models/
-models/*
-!models/.gitkeep
 experiments.json
 .log
 *.log

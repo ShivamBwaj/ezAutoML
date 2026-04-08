@@ -20,11 +20,11 @@ import sys
 import json
 import logging
 import warnings
+import zipfile
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 import pandas as pd
-import joblib
 from pydantic import BaseModel
 
 # ==================== MONITORING SETUP ====================
@@ -75,9 +75,7 @@ PROGRESS_FILE = Path('progress.monitor')
 from auto_ml_research_agent.config import load_config
 from auto_ml_research_agent.llm.groq_client import GroqClient
 from auto_ml_research_agent.problem.interpreter import ProblemInterpreter, ProblemSpecification
-from auto_ml_research_agent.dataset.search import DatasetSearcher
 from auto_ml_research_agent.dataset.evaluator import DatasetEvaluator
-from auto_ml_research_agent.dataset.downloader import DatasetDownloader
 from auto_ml_research_agent.dataset.browser_agent import BrowserAgent
 from auto_ml_research_agent.data.profiler import DataProfiler
 from auto_ml_research_agent.preprocessing.rules import PreprocessingEngine
@@ -88,8 +86,10 @@ from auto_ml_research_agent.training.evaluator import TrainingEvaluator
 from auto_ml_research_agent.experiments.tracker import ExperimentTracker
 from auto_ml_research_agent.reasoning.llm_analyzer import LLMAnalyzer
 from auto_ml_research_agent.reasoning.variant_generator import VariantGenerator
+from auto_ml_research_agent.reasoning.feature_selector import LLMFeatureSelector, ModelFeatureSelector
 from auto_ml_research_agent.controller.loop import ControllerLoop
 from auto_ml_research_agent.registry.model_registry import ModelRegistry
+from auto_ml_research_agent.reporting.training_report import generate_training_report
 from auto_ml_research_agent.exceptions import AutoMLError, DatasetError
 
 
@@ -159,7 +159,64 @@ def log_progress(stage: str, message: str = "", iteration: int = None):
         logger.info(message)
 
 
-def main(problem: str, dataset_path: Optional[str] = None) -> Dict[str, Any]:
+def validate_target_column(df: pd.DataFrame, problem_spec: ProblemSpecification, preprocessor_builder: PreprocessingEngine) -> Dict[str, Any]:
+    """Validate interpreted target to catch obvious leakage/mis-selection."""
+    target_column = problem_spec.target_column
+    task = problem_spec.task
+    errors: List[str] = []
+    warnings_list: List[str] = []
+
+    if target_column not in df.columns:
+        errors.append(f"Target column '{target_column}' not found in dataset")
+        return {"valid": False, "errors": errors, "warnings": warnings_list}
+
+    target_only = df[[target_column]]
+    if preprocessor_builder.detect_id_columns(target_only):
+        errors.append(f"Target '{target_column}' appears to be an identifier column")
+
+    unique_ratio = target_only[target_column].nunique(dropna=False) / max(1, len(df))
+    if task == "classification" and unique_ratio > 0.5:
+        warnings_list.append(f"Target has high uniqueness ({unique_ratio:.1%}) for classification")
+
+    leakage_keywords = ["outcome", "result", "score", "performance", "achievement"]
+    if any(kw in target_column.lower() for kw in leakage_keywords):
+        warnings_list.append(f"Target '{target_column}' may represent post-event outcome; verify leakage risk")
+
+    if task == "classification":
+        value_counts = df[target_column].value_counts(dropna=False)
+        minority_pct = (value_counts.min() / len(df)) * 100 if len(value_counts) > 0 else 0.0
+        if minority_pct < 1:
+            warnings_list.append(f"Extreme class imbalance detected: minority class {minority_pct:.2f}%")
+
+    return {"valid": len(errors) == 0, "errors": errors, "warnings": warnings_list}
+
+
+def main(problem: str, dataset_path: Optional[str] = None, max_iterations_override: Optional[int] = None) -> Dict[str, Any]:
+    def load_downloaded_dataset(path: str) -> Optional[pd.DataFrame]:
+        """Load direct CSV or extract first CSV from zip archive."""
+        p = Path(path)
+        if p.suffix.lower() == ".zip":
+            try:
+                extract_dir = p.parent / f"{p.stem}_extracted"
+                extract_dir.mkdir(parents=True, exist_ok=True)
+                with zipfile.ZipFile(p, "r") as zf:
+                    zf.extractall(extract_dir)
+                csv_files = sorted(extract_dir.rglob("*.csv"), key=lambda f: f.stat().st_size, reverse=True)
+                if not csv_files:
+                    print(f"    [FAIL]  Downloaded zip has no CSV files: {path}")
+                    return None
+                selected_csv = csv_files[0]
+                print(f"    [INFO]  Using CSV from zip: {selected_csv}")
+                return pd.read_csv(selected_csv)
+            except Exception as e:
+                print(f"    [FAIL]  Failed to extract/load zip dataset: {e}")
+                return None
+        try:
+            return pd.read_csv(path)
+        except Exception as e:
+            print(f"    [FAIL]  Failed to read downloaded file: {e}")
+            return None
+
     """
     Main orchestration function.
 
@@ -197,15 +254,19 @@ def main(problem: str, dataset_path: Optional[str] = None) -> Dict[str, Any]:
     logger.info("\n[1/9] Initializing components...")
     llm_client = GroqClient(
         api_key=config.groq_api_key,
+        api_keys=config.groq_api_keys,
         model=config.groq_model,
         temperature=config.temperature,
         max_retries=config.max_retries
     )
     interpreter = ProblemInterpreter(llm_client)
     # Create browser agent first (may be used by searcher for web fallback)
-    browser_agent = BrowserAgent(download_dir="data/raw", timeout=config.download_timeout)
-    searcher = DatasetSearcher(config=config, browser_agent=browser_agent)
-    downloader = DatasetDownloader(cache_dir="data/raw")
+    browser_agent = BrowserAgent(
+        download_dir="data/raw",
+        timeout=config.download_timeout,
+        auth_state_path=config.playwright_auth_state_path,
+        headless=config.playwright_headless
+    )
     profiler = DataProfiler()
     preprocessor_builder = PreprocessingEngine()
     edge_detector = LLMEdgeDetector(llm_client)
@@ -217,6 +278,8 @@ def main(problem: str, dataset_path: Optional[str] = None) -> Dict[str, Any]:
     train_eval = TrainingEvaluator()
     tracker = ExperimentTracker(db_path=config.experiment_db_path)
     analyzer = LLMAnalyzer(llm_client)
+    llm_feature_selector = LLMFeatureSelector(llm_client)
+    model_feature_selector = ModelFeatureSelector()
     controller = ControllerLoop(patience=config.patience)
     registry = ModelRegistry(registry_dir=config.model_registry_dir)
 
@@ -239,6 +302,12 @@ def main(problem: str, dataset_path: Optional[str] = None) -> Dict[str, Any]:
             profiler_stats = profiler.profile(df)
             problem_spec = interpreter.interpret(problem, profiler_stats)
             print(f"[OK] Problem specification: Task={problem_spec.task}, Target={problem_spec.target_column}, Metric={problem_spec.metric}")
+            target_validation = validate_target_column(df, problem_spec, preprocessor_builder)
+            for w in target_validation["warnings"]:
+                print(f"[WARN]  Target validation: {w}")
+            if not target_validation["valid"]:
+                print(f"[FAIL]  Invalid target selection: {'; '.join(target_validation['errors'])}")
+                sys.exit(1)
 
             evaluator = DatasetEvaluator(
                 target_column=problem_spec.target_column,
@@ -249,24 +318,27 @@ def main(problem: str, dataset_path: Optional[str] = None) -> Dict[str, Any]:
             if not validation['suitable']:
                 print(f"[FAIL]  Dataset unsuitable: {validation['reason']}")
                 sys.exit(1)
+            baseline = validation.get('baseline_score')
+            if baseline is not None:
+                if problem_spec.task == "classification" and baseline < 0.3:
+                    print(f"[WARN]  Suspiciously low classification baseline ({baseline:.4f}); review target/data quality.")
+                if problem_spec.task == "regression" and baseline < 0.1:
+                    print(f"[WARN]  Suspiciously low regression baseline ({baseline:.4f}); review target/data quality.")
             print(f"[OK] Dataset validated (baseline: {validation.get('baseline_score', 'N/A'):.4f})")
         except Exception as e:
             print(f"[FAIL]  Dataset processing failed: {e}")
             sys.exit(1)
     else:
-        # Search for dataset
-        print("  Searching for dataset...")
-        queries = [problem]
+        # Search for dataset via Playwright-only Kaggle web search
+        print("  Searching for dataset (Playwright Kaggle web search only)...")
+        search_query = problem
         if config.enable_llm_query_expansion:
-            print("  Expanding queries with LLM...")
-            expanded = expand_queries_llm(problem, llm_client, n=3)
-            queries.extend(expanded)
-            print(f"    Expanded queries: {expanded}")
-        candidates = searcher.search(
-            queries,
-            max_results=5,  # Reasonable number of candidates
-            min_downloads=config.dataset_min_downloads
-        )
+            print("  Expanding query with LLM...")
+            expanded = expand_queries_llm(problem, llm_client, n=1)
+            if expanded:
+                search_query = expanded[0]
+                print(f"    Using expanded query: {search_query}")
+        candidates = browser_agent.search_kaggle_web(search_query, max_results=5)
 
         if not candidates:
             print("[FAIL]  No datasets found. Provide a dataset path with: python main.py 'problem' dataset.csv")
@@ -279,21 +351,22 @@ def main(problem: str, dataset_path: Optional[str] = None) -> Dict[str, Any]:
             candidate = candidates[i]
             print(f"  Trying candidate {i+1}/{max_attempts}: {candidate['name']} (source: {candidate['source']})")
 
-            # Try to download
-            trial_df = downloader.download(candidate)
-            if trial_df is None:
-                print(f"    [WARN]  API download failed, trying browser agent if available...")
-                downloaded_path = browser_agent.search_and_download(candidate['name'])
-                if downloaded_path:
-                    try:
-                        trial_df = pd.read_csv(downloaded_path)
-                        print(f"    [OK] Downloaded via browser: {trial_df.shape}")
-                    except Exception as e:
-                        print(f"    [FAIL]  Failed to read browser file: {e}")
-                        trial_df = None
-                else:
-                    print(f"    [FAIL]  Browser download also failed")
-                    trial_df = None
+            # Download via browser-only workflow
+            candidate_ref = candidate.get('kaggle_ref')
+            if candidate_ref:
+                print(f"    [INFO] Attempting direct Kaggle download with ref: {candidate_ref}")
+                downloaded_path = browser_agent.download_kaggle_by_ref(candidate_ref)
+            else:
+                candidate_query = candidate.get('name', '')
+                print(f"    [INFO] Attempting browser search+download with query: {candidate_query}")
+                downloaded_path = browser_agent.search_and_download(candidate_query)
+            if downloaded_path:
+                trial_df = load_downloaded_dataset(downloaded_path)
+                if trial_df is not None:
+                    print(f"    [OK] Downloaded via browser: {trial_df.shape}")
+            else:
+                print(f"    [FAIL]  Browser download failed (likely login-gated or no download event from page)")
+                trial_df = None
 
             if trial_df is None:
                 print(f"    [WARN]  Rejecting {candidate['name']}: failed to load dataset")
@@ -308,6 +381,12 @@ def main(problem: str, dataset_path: Optional[str] = None) -> Dict[str, Any]:
             try:
                 trial_profiler_stats = profiler.profile(trial_df)
                 trial_problem_spec = interpreter.interpret(problem, trial_profiler_stats)
+                target_validation = validate_target_column(trial_df, trial_problem_spec, preprocessor_builder)
+                if not target_validation["valid"]:
+                    print(f"    [WARN]  Rejecting {candidate['name']}: invalid target ({'; '.join(target_validation['errors'])})")
+                    continue
+                for w in target_validation["warnings"]:
+                    print(f"    [WARN]  Target validation: {w}")
 
                 evaluator = DatasetEvaluator(
                     target_column=trial_problem_spec.target_column,
@@ -319,6 +398,12 @@ def main(problem: str, dataset_path: Optional[str] = None) -> Dict[str, Any]:
                 if not trial_validation['suitable']:
                     print(f"    [WARN]  Rejecting {candidate['name']}: {trial_validation['reason']}")
                     continue
+                baseline = trial_validation.get('baseline_score')
+                if baseline is not None:
+                    if trial_problem_spec.task == "classification" and baseline < 0.3:
+                        print(f"    [WARN]  Low baseline ({baseline:.4f}) on {candidate['name']}; keeping but flagged for review.")
+                    if trial_problem_spec.task == "regression" and baseline < 0.1:
+                        print(f"    [WARN]  Low baseline ({baseline:.4f}) on {candidate['name']}; keeping but flagged for review.")
 
                 # Success!
                 df = trial_df
@@ -348,10 +433,37 @@ def main(problem: str, dataset_path: Optional[str] = None) -> Dict[str, Any]:
     if edge_analysis.suggestions:
         print(f"[INFO]  Suggestions: {', '.join(edge_analysis.suggestions[:3])}")
 
-    # Step 5: Build preprocessor
+    # Step 5: Build preprocessor (+ feature-selection variants)
     print("\n[6/9] Building preprocessor...")
     try:
         preprocessor, preprocessing_metadata = preprocessor_builder.build_preprocessor(df, problem_spec.target_column)
+        preprocessor_variants = [{"mode": "full", "preprocessor": preprocessor, "meta": {"reasoning": "baseline full features"}}]
+
+        feature_columns = [c for c in df.columns if c != problem_spec.target_column]
+        correlation_summary = profiler_stats.get("correlations", {}) if profiler_stats else {}
+        llm_fs = llm_feature_selector.select_features(
+            profiler_stats=profiler_stats,
+            problem_spec=problem_spec.model_dump(),
+            candidate_features=feature_columns,
+            correlation_summary=correlation_summary
+        )
+        llm_selected = [c for c in llm_fs.included_features if c in feature_columns]
+        if llm_selected and len(llm_selected) < len(feature_columns):
+            llm_df = df[llm_selected + [problem_spec.target_column]]
+            llm_pre, _ = preprocessor_builder.build_preprocessor(llm_df, problem_spec.target_column)
+            preprocessor_variants.append({"mode": "llm_guided", "preprocessor": llm_pre, "meta": {"selected_features": llm_selected, "reasoning": llm_fs.reasoning}})
+
+        model_selected = model_feature_selector.select_features(df, problem_spec.target_column, problem_spec.task)
+        if model_selected and len(model_selected) < len(feature_columns):
+            model_df = df[model_selected + [problem_spec.target_column]]
+            model_pre, _ = preprocessor_builder.build_preprocessor(model_df, problem_spec.target_column)
+            preprocessor_variants.append({"mode": "model_based", "preprocessor": model_pre, "meta": {"selected_features": model_selected}})
+
+        hybrid_selected = sorted(set(llm_selected).intersection(set(model_selected))) if llm_selected else []
+        if hybrid_selected and len(hybrid_selected) < len(feature_columns):
+            hybrid_df = df[hybrid_selected + [problem_spec.target_column]]
+            hybrid_pre, _ = preprocessor_builder.build_preprocessor(hybrid_df, problem_spec.target_column)
+            preprocessor_variants.append({"mode": "hybrid", "preprocessor": hybrid_pre, "meta": {"selected_features": hybrid_selected, "reasoning": llm_fs.reasoning}})
         print(f"[OK] Preprocessor built")
 
         # Display detailed preprocessing plan
@@ -401,6 +513,8 @@ def main(problem: str, dataset_path: Optional[str] = None) -> Dict[str, Any]:
     print("="*60)
 
     iteration = 0
+    max_iterations = max_iterations_override if max_iterations_override is not None else config.max_iterations
+
     best_pipeline = None
     best_config = None  # Config corresponding to best pipeline
     best_score = None
@@ -416,7 +530,19 @@ def main(problem: str, dataset_path: Optional[str] = None) -> Dict[str, Any]:
             # Generate variants
             if iteration == 1:
                 print("  Generating initial variants...")
-                variant_configs = pipeline_gen.generate_variants(preprocessor, n_variants=5)
+                variant_configs = []
+                # Ensure feature-selection strategies are represented from the first iteration.
+                for variant_spec in preprocessor_variants[:4]:
+                    generated = pipeline_gen.generate_variants(variant_spec["preprocessor"], n_variants=1)
+                    if generated:
+                        generated[0]["feature_selection"] = {"mode": variant_spec["mode"], **variant_spec["meta"]}
+                        variant_configs.append(generated[0])
+                if len(variant_configs) < 5:
+                    remaining = 5 - len(variant_configs)
+                    generated = pipeline_gen.generate_variants(preprocessor, n_variants=remaining)
+                    for item in generated:
+                        item["feature_selection"] = {"mode": "full", "reasoning": "baseline full features"}
+                        variant_configs.append(item)
             else:
                 # Only call LLM every N iterations to reduce cost/time
                 if iteration % config.llm_analysis_interval == 0:
@@ -481,16 +607,12 @@ def main(problem: str, dataset_path: Optional[str] = None) -> Dict[str, Any]:
             display_score = -current_score if best_variant['metric_name'] == 'neg_rmse' else current_score
             print(f"  [OK] Best: {best_variant['config']['name']} ({best_variant['metric_name']}={display_score:.4f})")
 
-            # Save model for this iteration
-            model_path = Path("models") / f"iter_{iteration}.pkl"
-            model_path.parent.mkdir(parents=True, exist_ok=True)
-            joblib.dump(current_pipeline, model_path)
-
             # Log experiment (strip non-serializable pipeline)
             log_config = {k: v for k, v in best_variant['config'].items() if k != 'pipeline'}
             extra = {
                 'n_variants': len(variant_results),
-                'validation_method': best_variant.get('validation_method', 'unknown')
+                'validation_method': best_variant.get('validation_method', 'unknown'),
+                'candidate_models': [v.get('config', {}).get('model_name', 'unknown') for v in variant_results],
             }
 
             # Include preprocessing metadata on first iteration to document the preprocessing plan
@@ -502,9 +624,10 @@ def main(problem: str, dataset_path: Optional[str] = None) -> Dict[str, Any]:
                 config=log_config,
                 score=current_score,
                 metric_name=best_variant['metric_name'],
-                model_path=str(model_path),
+                model_path="models/best_model.pkl",
                 extra=extra
             )
+            print(f"  [INFO] Trained {len(variant_results)} variants this iteration; logged best 1 entry. Total logged experiments: {len(tracker.get_history())}")
 
             # Update best
             if best_score is None or current_score > best_score:
@@ -526,8 +649,8 @@ def main(problem: str, dataset_path: Optional[str] = None) -> Dict[str, Any]:
                 print(f"\n[STOP]  No improvement for {config.patience} iterations. Stopping.")
                 break
 
-            if iteration >= config.max_iterations:
-                print(f"\n[STOP]  Reached max iterations ({config.max_iterations}). Stopping.")
+            if iteration >= max_iterations:
+                print(f"\n[STOP]  Reached max iterations ({max_iterations}). Stopping.")
                 break
 
     except KeyboardInterrupt:
@@ -567,6 +690,23 @@ def main(problem: str, dataset_path: Optional[str] = None) -> Dict[str, Any]:
         print(f"[FAIL]  Failed to save model: {e}")
         sys.exit(1)
 
+    # Generate post-training evaluation report + graphs
+    try:
+        report = generate_training_report(
+            pipeline=best_pipeline,
+            df=df,
+            target_column=problem_spec.target_column,
+            task=problem_spec.task,
+            experiment_history=tracker.get_history(),
+            output_dir=str(Path(config.model_registry_dir) / "reports"),
+            test_size=config.test_size,
+            random_state=config.random_state,
+        )
+        print(f"[OK] Training report generated: {Path(config.model_registry_dir) / 'reports'}")
+    except Exception as e:
+        print(f"[WARN]  Failed to generate training report: {e}")
+        report = {}
+
     # Final summary - convert neg_rmse back to positive for display
     display_score = best_score
     if best_variant['metric_name'] == 'neg_rmse':
@@ -579,8 +719,10 @@ def main(problem: str, dataset_path: Optional[str] = None) -> Dict[str, Any]:
         'problem_spec': problem_spec.model_dump(),
         'total_experiments': len(tracker.get_history()),
         'patience': config.patience,
+        'max_iterations': max_iterations,
         'metric_name': best_variant['metric_name'],
-        'preprocessing': preprocessing_metadata if 'preprocessing_metadata' in locals() else None
+        'preprocessing': preprocessing_metadata if 'preprocessing_metadata' in locals() else None,
+        'report': report
     }
 
     print("\n" + "="*60)
@@ -594,10 +736,10 @@ def main(problem: str, dataset_path: Optional[str] = None) -> Dict[str, Any]:
     # Show preprocessing summary again for clarity
     if 'preprocessing_metadata' in locals() and preprocessing_metadata:
         print("\nPreprocessing applied:")
-        summary = preprocessing_metadata['summary']
-        print(f"  Input: {summary['total_input_features']} features -> "
-              f"{summary['numeric_features']} numeric, {summary['categorical_features']} categorical")
-        print(f"  Transformers: {summary['transformers_created']}")
+        pre_summary = preprocessing_metadata['summary']
+        print(f"  Input: {pre_summary['total_input_features']} features -> "
+              f"{pre_summary['numeric_features']} numeric, {pre_summary['categorical_features']} categorical")
+        print(f"  Transformers: {pre_summary['transformers_created']}")
 
     print("\nTo deploy API: python -m auto_ml_research_agent.deployment.api")
     print("Or: uvicorn auto_ml_research_agent.deployment.api:app --reload")
@@ -624,9 +766,10 @@ if __name__ == "__main__":
 
     problem_desc = sys.argv[1]
     dataset_file = sys.argv[2] if len(sys.argv) > 2 else None
+    max_iterations_override = int(sys.argv[3]) if len(sys.argv) > 3 else None
 
     try:
-        result = main(problem_desc, dataset_file)
+        result = main(problem_desc, dataset_file, max_iterations_override=max_iterations_override)
         print("\n" + "="*60)
         print("FINAL RESULT")
         print("="*60)

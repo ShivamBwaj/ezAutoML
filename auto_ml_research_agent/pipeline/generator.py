@@ -3,8 +3,45 @@ Pipeline Generator: Creates sklearn pipeline configurations with multiple varian
 """
 from typing import List, Dict, Any, Optional
 from sklearn.pipeline import Pipeline
-from sklearn.base import BaseEstimator
+from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.preprocessing import LabelEncoder
 from auto_ml_research_agent.exceptions import AutoMLError
+
+
+class LabelEncodedXGBClassifier(BaseEstimator, ClassifierMixin):
+    """
+    XGBoost classifier wrapper that supports non-numeric class labels.
+    It encodes labels during fit and decodes them during predict.
+    """
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+        self.model_ = None
+        self._label_encoder = LabelEncoder()
+
+    def fit(self, X, y):
+        import pandas as pd
+        from xgboost import XGBClassifier
+
+        y_series = pd.Series(y).astype(str).str.strip()
+        y_encoded = self._label_encoder.fit_transform(y_series)
+        self.model_ = XGBClassifier(**self.kwargs)
+        self.model_.fit(X, y_encoded)
+        self.classes_ = self._label_encoder.classes_
+        return self
+
+    def predict(self, X):
+        y_encoded = self.model_.predict(X)
+        return self._label_encoder.inverse_transform(y_encoded)
+
+    def predict_proba(self, X):
+        return self.model_.predict_proba(X)
+
+    def get_params(self, deep=True):
+        return dict(self.kwargs)
+
+    def set_params(self, **params):
+        self.kwargs.update(params)
+        return self
 
 
 class PipelineGenerator:
@@ -13,9 +50,8 @@ class PipelineGenerator:
     Supports dynamic instantiation of any sklearn model by name.
     """
 
-    # Comprehensive model mapping for classification
+    # Curated top-10 model mapping for classification
     CLASSIFICATION_MODELS = {
-        # Classic sklearn
         'logistic': ('LogisticRegression', {'max_iter': 1000}),
         'logisticregression': ('LogisticRegression', {'max_iter': 1000}),
         'randomforest': ('RandomForestClassifier', {}),
@@ -33,34 +69,17 @@ class PipelineGenerator:
         'decisiontree': ('DecisionTreeClassifier', {}),
         'dt': ('DecisionTreeClassifier', {}),
         'gaussiannb': ('GaussianNB', {}),
-        'lda': ('LinearDiscriminantAnalysis', {}),
-        'qda': ('QuadraticDiscriminantAnalysis', {}),
-        # Additional sklearn models
-        'mlp': ('MLPClassifier', {'hidden_layer_sizes': (100,), 'max_iter': 200, 'random_state': 42}),
-        'mlpclassifier': ('MLPClassifier', {'hidden_layer_sizes': (100,), 'max_iter': 200, 'random_state': 42}),
-        'perceptron': ('Perceptron', {'max_iter': 1000, 'random_state': 42}),
-        'passiveaggressive': ('PassiveAggressiveClassifier', {'max_iter': 1000, 'random_state': 42}),
-        'ridgeclassifier': ('RidgeClassifier', {'random_state': 42}),
-        'sgdclassifier': ('SGDClassifier', {'max_iter': 1000, 'random_state': 42}),
         'histgradientboosting': ('HistGradientBoostingClassifier', {'random_state': 42}),
-        # External libraries (optional)
-        'xgboost': ('XGBClassifier', {'n_estimators': 100, 'random_state': 42}),
-        'xgb': ('XGBClassifier', {'n_estimators': 100, 'random_state': 42}),
-        'lightgbm': ('LGBMClassifier', {'n_estimators': 100, 'random_state': 42}),
-        'lgbm': ('LGBMClassifier', {'n_estimators': 100, 'random_state': 42}),
-        'lgb': ('LGBMClassifier', {'n_estimators': 100, 'random_state': 42}),
-        'catboost': ('CatBoostClassifier', {'iterations': 100, 'random_seed': 42, 'verbose': False}),
-        'cat': ('CatBoostClassifier', {'iterations': 100, 'random_seed': 42, 'verbose': False}),
+        'xgboost': ('XGBClassifier', {}),
+        'xgb': ('XGBClassifier', {}),
     }
 
-    # Comprehensive model mapping for regression
+    # Curated top-10 model mapping for regression
     REGRESSION_MODELS = {
-        # Classic sklearn
         'linear': ('LinearRegression', {}),
         'linearregression': ('LinearRegression', {}),
         'ridge': ('Ridge', {}),
         'lasso': ('Lasso', {}),
-        'elasticnet': ('ElasticNet', {}),
         'randomforest': ('RandomForestRegressor', {}),
         'rf': ('RandomForestRegressor', {}),
         'gradientboosting': ('GradientBoostingRegressor', {}),
@@ -74,32 +93,9 @@ class PipelineGenerator:
         'kneighborsregressor': ('KNeighborsRegressor', {}),
         'decisiontree': ('DecisionTreeRegressor', {}),
         'dt': ('DecisionTreeRegressor', {}),
-        # Additional sklearn models
-        'mlp': ('MLPRegressor', {'hidden_layer_sizes': (100,), 'max_iter': 200, 'random_state': 42}),
-        'mlpregressor': ('MLPRegressor', {'hidden_layer_sizes': (100,), 'max_iter': 200, 'random_state': 42}),
-        'passiveaggressive': ('PassiveAggressiveRegressor', {'max_iter': 1000, 'random_state': 42}),
-        'sgdregressor': ('SGDRegressor', {'max_iter': 1000, 'random_state': 42}),
-        'theilsen': ('TheilSenRegressor', {}),
-        'theilsenregressor': ('TheilSenRegressor', {}),
-        'ransac': ('RANSACRegressor', {}),
-        'ransacregressor': ('RANSACRegressor', {}),
-        'huber': ('HuberRegressor', {}),
-        'huberregressor': ('HuberRegressor', {}),
-        'poisson': ('PoissonRegressor', {'max_iter': 1000}),
-        'poissonregressor': ('PoissonRegressor', {'max_iter': 1000}),
-        'gamma': ('GammaRegressor', {'max_iter': 1000}),
-        'gammaregressor': ('GammaRegressor', {'max_iter': 1000}),
-        'tweedie': ('TweedieRegressor', {'max_iter': 1000}),
-        'tweedieregressor': ('TweedieRegressor', {'max_iter': 1000}),
         'histgradientboosting': ('HistGradientBoostingRegressor', {}),
-        # External libraries (optional)
-        'xgboost': ('XGBRegressor', {'n_estimators': 100, 'random_state': 42}),
-        'xgb': ('XGBRegressor', {'n_estimators': 100, 'random_state': 42}),
-        'lightgbm': ('LGBMRegressor', {'n_estimators': 100, 'random_state': 42}),
-        'lgbm': ('LGBMRegressor', {'n_estimators': 100, 'random_state': 42}),
-        'lgb': ('LGBMRegressor', {'n_estimators': 100, 'random_state': 42}),
-        'catboost': ('CatBoostRegressor', {'iterations': 100, 'random_seed': 42, 'verbose': False}),
-        'cat': ('CatBoostRegressor', {'iterations': 100, 'random_seed': 42, 'verbose': False}),
+        'xgboost': ('XGBRegressor', {}),
+        'xgb': ('XGBRegressor', {}),
     }
 
     def __init__(self, task: str, random_state: int = 42):
@@ -235,6 +231,14 @@ class PipelineGenerator:
             'CatBoostRegressor': ('catboost', 'cb.CatBoostRegressor'),
         }
 
+        if class_name == 'XGBClassifier':
+            try:
+                import xgboost  # noqa: F401
+                return LabelEncodedXGBClassifier
+            except ImportError:
+                print("[WARN]  xgboost not installed. Install with: pip install xgboost")
+                return None
+
         if class_name in external_map:
             package, import_path = external_map[class_name]
             try:
@@ -276,9 +280,9 @@ class PipelineGenerator:
         else:
             # Use default diverse set with expanded model options
             if self.task == "classification":
-                model_names = ['logistic', 'randomforest', 'gradientboosting', 'svc', 'kneighbors', 'extratrees', 'adaboost', 'mlp']
+                model_names = ['logistic', 'randomforest', 'gradientboosting', 'svc', 'kneighbors', 'extratrees', 'adaboost', 'decisiontree', 'xgboost', 'histgradientboosting']
             else:
-                model_names = ['linear', 'ridge', 'randomforest', 'gradientboosting', 'svr', 'extratrees', 'adaboost', 'mlp']
+                model_names = ['linear', 'ridge', 'lasso', 'randomforest', 'gradientboosting', 'svr', 'knr', 'extratrees', 'xgboost', 'histgradientboosting']
 
         # Generate one variant per model type
         for model_name in model_names[:n_variants]:

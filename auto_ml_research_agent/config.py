@@ -3,7 +3,7 @@ Configuration management for AUTO_ML_RESEARCH_AGENT.
 Loads settings from environment variables or .env file.
 """
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 import os
 from dotenv import load_dotenv
 
@@ -14,10 +14,11 @@ load_dotenv()
 class Config(BaseModel):
     """Main configuration container"""
     groq_api_key: str = Field(..., description="Groq API key")
-    groq_model: str = Field("llama-3.1-8b-instant", description="Groq model to use")
+    groq_api_keys: List[str] = Field(default_factory=list, description="Ordered Groq API keys for failover")
+    groq_model: str = Field("llama-3.3-70b-versatile", description="Groq model to use")
     temperature: float = Field(0.3, ge=0.0, le=1.0, description="LLM temperature")
     max_retries: int = Field(3, ge=0, description="Max retries for LLM calls")
-    patience: int = Field(50, ge=1, description="Patience for iteration stopping (research: use 50+)")
+    patience: int = Field(10, ge=1, description="Patience for iteration stopping")
     test_size: float = Field(0.2, ge=0.1, le=0.5, description="Holdout validation split size")
     random_state: int = Field(42, description="Random seed for reproducibility")
     cv_threshold: int = Field(500, description="Use CV if n_rows < threshold")
@@ -32,20 +33,29 @@ class Config(BaseModel):
     enable_kaggle_search: bool = Field(True, description="Enable Kaggle dataset search (unreliable API but can find real datasets)")
     enable_huggingface_search: bool = Field(False, description="Enable HuggingFace dataset search (can return junk)")
     suppress_sklearn_warnings: bool = Field(True, description="Suppress sklearn warnings about class distribution and CV splits")
+    playwright_auth_state_path: str = Field("playwright_auth/kaggle_state.json", description="Path to persisted Playwright auth session state")
+    playwright_headless: bool = Field(True, description="Run Playwright in headless mode")
 
     @classmethod
     def from_env(cls) -> "Config":
         """Load configuration from environment variables"""
-        groq_api_key = os.getenv("GROQ_API_KEY")
-        if not groq_api_key:
+        groq_api_keys = []
+        for i in range(1, 6):
+            env_name = "GROQ_API_KEY" if i == 1 else f"GROQ_API_KEY{i}"
+            value = os.getenv(env_name)
+            if value:
+                groq_api_keys.append(value)
+
+        if not groq_api_keys:
             raise ValueError(
-                "GROQ_API_KEY must be set in environment or .env file. "
+                "At least one GROQ API key must be set in environment or .env file. "
                 "Get your key from https://console.groq.com/"
             )
 
         return cls(
-            groq_api_key=groq_api_key,
-            groq_model=os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
+            groq_api_key=groq_api_keys[0],
+            groq_api_keys=groq_api_keys,
+            groq_model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
             temperature=float(os.getenv("TEMPERATURE", "0.3")),
             max_retries=int(os.getenv("MAX_RETRIES", "3")),
             test_size=float(os.getenv("TEST_SIZE", "0.2")),
@@ -57,12 +67,14 @@ class Config(BaseModel):
             dataset_min_downloads=int(os.getenv("DATASET_MIN_DOWNLOADS", "10")),
             max_dataset_attempts=int(os.getenv("MAX_DATASET_ATTEMPTS", "10")),
             enable_llm_query_expansion=os.getenv("ENABLE_LLM_QUERY_EXPANSION", "False").lower() == "true",
-            patience=int(os.getenv("PATIENCE", "50")),
+            patience=int(os.getenv("PATIENCE", "10")),
             max_iterations=int(os.getenv("MAX_ITERATIONS", "100")),
             llm_analysis_interval=int(os.getenv("LLM_ANALYSIS_INTERVAL", "10")),
             enable_kaggle_search=os.getenv("ENABLE_KAGGLE_SEARCH", "True").lower() == "true",
             enable_huggingface_search=os.getenv("ENABLE_HUGGINGFACE_SEARCH", "False").lower() == "true",
             suppress_sklearn_warnings=os.getenv("SUPPRESS_SKLEARN_WARNINGS", "True").lower() == "true",
+            playwright_auth_state_path=os.getenv("PLAYWRIGHT_AUTH_STATE_PATH", "playwright_auth/kaggle_state.json"),
+            playwright_headless=os.getenv("PLAYWRIGHT_HEADLESS", "True").lower() == "true",
         )
 
 

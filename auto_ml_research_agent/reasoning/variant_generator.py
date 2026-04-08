@@ -100,7 +100,6 @@ class VariantGenerator:
             List of model names (e.g., ['xgboost', 'randomforest'])
         """
         model_keywords = {
-            # Classic sklearn
             'logistic': 'logistic',
             'logisticregression': 'logistic',
             'randomforest': 'randomforest',
@@ -119,63 +118,18 @@ class VariantGenerator:
             'decisiontree': 'decisiontree',
             'dt': 'decisiontree',
             'gaussiannb': 'gaussiannb',
-            'lda': 'lda',
-            'lineardiscriminant': 'lda',
-            'qda': 'qda',
-            'quadraticdiscriminant': 'qda',
             'ridge': 'ridge',
             'lasso': 'lasso',
-            'elasticnet': 'elasticnet',
             'linearregression': 'linear',
             'linear': 'linear',
             'svr': 'svr',
             'knr': 'knr',
             'kneighborsregressor': 'knr',
-            'decisiontreeregressor': 'decisiontree',
-            # Additional sklearn models
-            'mlp': 'mlp',
-            'mlpclassifier': 'mlp',
-            'neuralnetwork': 'mlp',
-            'neuralnet': 'mlp',
-            'perceptron': 'perceptron',
-            'passiveaggressive': 'passiveaggressive',
-            'pa': 'passiveaggressive',
-            'ridgeclassifier': 'ridgeclassifier',
-            'sgdclassifier': 'sgdclassifier',
-            'sgd': 'sgdclassifier',
-            'stochasticgradient': 'sgdclassifier',
             'histgradientboosting': 'histgradientboosting',
             'hgb': 'histgradientboosting',
             'histgb': 'histgradientboosting',
-            'mlpregressor': 'mlp',
-            'passiveaggressiveregressor': 'passiveaggressive',
-            'sgdregressor': 'svr',  # fallback to SVR-like behavior
-            'theilsen': 'theilsen',
-            'theilsenregressor': 'theilsen',
-            'ransac': 'ransac',
-            'ransacregressor': 'ransac',
-            'huber': 'huber',
-            'huberregressor': 'huber',
-            'poisson': 'poisson',
-            'poissonregressor': 'poisson',
-            'gamma': 'gamma',
-            'gammaregressor': 'gamma',
-            'tweedie': 'tweedie',
-            'tweedieregressor': 'tweedie',
-            # External libraries
             'xgboost': 'xgboost',
             'xgb': 'xgboost',
-            'xgbclassifier': 'xgboost',
-            'xgbregressor': 'xgboost',
-            'lightgbm': 'lightgbm',
-            'lgbm': 'lightgbm',
-            'lgb': 'lightgbm',
-            'lgbmclassifier': 'lightgbm',
-            'lgbmregressor': 'lightgbm',
-            'catboost': 'catboost',
-            'cat': 'catboost',
-            'catboostclassifier': 'catboost',
-            'catboostregressor': 'catboost',
         }
 
         found_models = []
@@ -255,12 +209,6 @@ class VariantGenerator:
             return {'n_estimators': int(100 * factor), 'learning_rate': 0.1 * factor}
         elif 'gb' in model_lower or 'gradientboosting' in model_lower:
             return {'learning_rate': 0.1 * factor, 'n_estimators': int(100 * factor)}
-        elif 'xgb' in model_lower or 'xgboost' in model_lower:
-            return {'n_estimators': int(100 * factor), 'learning_rate': 0.1 * factor, 'max_depth': int(6 * factor) if factor > 1 else 6}
-        elif 'lgb' in model_lower or 'lightgbm' in model_lower:
-            return {'n_estimators': int(100 * factor), 'learning_rate': 0.1 * factor, 'num_leaves': int(31 * factor)}
-        elif 'cat' in model_lower or 'catboost' in model_lower:
-            return {'iterations': int(100 * factor), 'learning_rate': 0.1 * factor, 'depth': int(6 * factor) if factor > 1 else 6}
         elif 'logistic' in model_lower or 'svc' in model_lower or 'svm' in model_lower:
             return {'C': 1.0 * factor}
         elif 'ridge' in model_lower or 'lasso' in model_lower or 'elasticnet' in model_lower:
@@ -268,31 +216,9 @@ class VariantGenerator:
         elif 'knn' in model_lower or 'neighbor' in model_lower:
             n = int(5 / factor) if factor < 1 else int(5 * factor)
             return {'n_neighbors': max(1, n)}
-        elif 'mlp' in model_lower:
-            # MLP: vary hidden layers and regularization
-            if factor < 1:
-                return {'hidden_layer_sizes': (50,), 'alpha': 0.001}
-            elif factor > 1:
-                return {'hidden_layer_sizes': (100, 50), 'alpha': 0.0001}
-            else:
-                return {'hidden_layer_sizes': (100,)}
-        elif 'perceptron' in model_lower:
-            return {'penalty': 'l2', 'alpha': 0.0001 * factor}
-        elif 'passiveaggressive' in model_lower:
-            return {'C': 1.0 * factor, 'max_iter': 1000}
-        elif 'ridgeclassifier' in model_lower:
-            return {'alpha': 1.0 * factor}
-        elif 'sgd' in model_lower:
-            return {'loss': 'log_loss' if self.task == 'classification' else 'squared_error', 'alpha': 0.0001 * factor, 'learning_rate': 'optimal'}
         elif 'histgradientboosting' in model_lower:
             return {'learning_rate': 0.1 * factor, 'max_iter': int(100 * factor), 'max_depth': int(10 * factor) if factor > 1 else None}
-        elif 'theilsen' in model_lower:
-            return {'max_subpopulation': max(10, int(100 / factor))}
-        elif 'ransac' in model_lower:
-            return {'min_samples': max(0.1, 0.5 * factor), 'residual_threshold': None}
-        elif 'huber' in model_lower:
-            return {'epsilon': 1.35, 'alpha': 1.0 * factor}
-        elif 'poisson' in model_lower or 'gamma' in model_lower or 'tweedie' in model_lower:
-            return {'alpha': 1.0 * factor, 'max_iter': 1000}
+        elif 'xgboost' in model_lower or model_lower == 'xgb':
+            return {'n_estimators': int(100 * factor), 'learning_rate': 0.1 * factor, 'max_depth': max(3, int(6 * factor))}
         else:
             return {}
